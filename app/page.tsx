@@ -1,103 +1,251 @@
-import Image from "next/image";
+'use client';
+
+import React, { useState } from 'react';
+import { Video, Download, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import axios from 'axios';
+
+interface VideoInfo {
+    videoId: string;
+    title: string;
+    thumbnail: string;
+    duration: number;
+    author: string;
+    viewCount: number;
+    formats: VideoFormat[];
+}
+
+interface VideoFormat {
+    quality: string;
+    format: string;
+    fileSize: number;
+    hasVideo: boolean;
+    hasAudio: boolean;
+    itag: number;
+}
+
+const validateYouTubeUrl = (url: string) => {
+    const patterns = [
+        /(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/,
+        /(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]{11})/,
+    ];
+
+    for (const pattern of patterns) {
+        const match = url.match(pattern);
+        if (match) {
+            return { isValid: true, videoId: match[1] };
+        }
+    }
+
+    return { isValid: false, videoId: null };
+};
+
+const formatDuration = (seconds: number): string => {
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+};
+
+const formatFileSize = (bytes: number): string => {
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(1)} MB`;
+};
+
+const formatViews = (views: number): string => {
+    if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
+    if (views >= 1000) return `${(views / 1000).toFixed(1)}K`;
+    return views.toString();
+};
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    const [url, setUrl] = useState('');
+    const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [downloading, setDownloading] = useState<number | null>(null);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    const handleGetInfo = async () => {
+        setError('');
+        setSuccess('');
+
+        const validation = validateYouTubeUrl(url);
+        if (!validation.isValid) {
+            setError('Por favor ingresa una URL válida de YouTube');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const response = await axios.get(`/api/video-info?videoId=${validation.videoId}`);
+
+            if (response.data.success) {
+                setVideoInfo(response.data.data);
+            } else {
+                setError(response.data.error || 'Error al obtener información del video');
+            }
+        } catch (err) {
+            setError('Error al conectar con el servidor');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDownload = async (format: VideoFormat) => {
+        if (!videoInfo) return;
+
+        setDownloading(format.itag);
+        setError('');
+        setSuccess('');
+
+        try {
+            console.log('Iniciando descarga para:', format);
+
+            const response = await axios.post('/api/download', {
+                videoId: videoInfo.videoId,
+                itag: format.itag,
+                title: videoInfo.title,
+                format: format.format
+            });
+
+            console.log('Respuesta del servidor:', response.data);
+
+            if (response.data.success && response.data.data.downloadUrl) {
+                // Crear un enlace de descarga
+                const link = document.createElement('a');
+                link.href = response.data.data.downloadUrl;
+                link.download = response.data.data.filename;
+                link.target = '_blank';
+
+                // Agregar al DOM y hacer clic
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+                setSuccess(`Descarga iniciada: ${format.quality}`);
+            } else {
+                setError('No se pudo obtener la URL de descarga');
+            }
+
+            setTimeout(() => setSuccess(''), 5000);
+
+        } catch (err) {
+            console.error('Error en descarga:', err);
+            setError('Error al iniciar la descarga: ' + err.message);
+        } finally {
+            setDownloading(null);
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-gray-900">
+            <div className="container mx-auto px-4 py-8 max-w-4xl">
+                <div className="text-center mb-8">
+                    <div className="flex items-center justify-center gap-3 mb-4">
+                        <Video className="w-10 h-10 text-red-500" />
+                        <h1 className="text-3xl font-bold text-white">YouTube Downloader</h1>
+                    </div>
+                    <p className="text-gray-400">Descarga videos de YouTube fácilmente</p>
+                </div>
+
+                <div className="bg-gray-800 p-6 rounded-lg shadow mb-6 border border-gray-700">
+                    <div className="flex gap-4">
+                        <input
+                            type="text"
+                            value={url}
+                            onChange={(e) => setUrl(e.target.value)}
+                            placeholder="https://www.youtube.com/watch?v=..."
+                            className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-white placeholder-gray-400"
+                            onKeyPress={(e) => e.key === 'Enter' && handleGetInfo()}
+                        />
+                        <button
+                            onClick={handleGetInfo}
+                            disabled={loading || !url.trim()}
+                            className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2 transition-colors"
+                        >
+                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />}
+                            Obtener Info
+                        </button>
+                    </div>
+
+                    {error && (
+                        <div className="mt-4 p-3 bg-red-900 border border-red-700 rounded flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4 text-red-400" />
+                            <span className="text-red-300">{error}</span>
+                        </div>
+                    )}
+
+                    {success && (
+                        <div className="mt-4 p-3 bg-green-900 border border-green-700 rounded flex items-center gap-2">
+                            <CheckCircle className="w-4 h-4 text-green-400" />
+                            <span className="text-green-300">{success}</span>
+                        </div>
+                    )}
+                </div>
+
+                {videoInfo && (
+                    <div className="bg-gray-800 rounded-lg shadow overflow-hidden border border-gray-700">
+                        <div className="p-6">
+                            <div className="flex gap-6">
+                                <img
+                                    src={videoInfo.thumbnail}
+                                    alt={videoInfo.title}
+                                    className="w-48 h-36 object-cover rounded border border-gray-600"
+                                />
+                                <div className="flex-1">
+                                    <h2 className="text-xl font-bold mb-2 text-white">{videoInfo.title}</h2>
+                                    <p className="text-gray-400 mb-2">Por {videoInfo.author}</p>
+                                    <div className="text-sm text-gray-500">
+                                        <span>{formatViews(videoInfo.viewCount)} visualizaciones</span>
+                                        <span className="mx-2">•</span>
+                                        <span>{formatDuration(videoInfo.duration)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="border-t border-gray-700 p-6">
+                            <h3 className="text-lg font-semibold mb-4 text-white">Opciones de Descarga</h3>
+                            <div className="space-y-3">
+                                {videoInfo.formats.map((format, index) => (
+                                    <div key={index} className="flex items-center justify-between p-3 border border-gray-600 rounded bg-gray-700">
+                                        <div>
+                                            <span className="font-medium text-white">{format.quality}</span>
+                                            <span className="text-gray-400 ml-2">({format.format})</span>
+                                            <span className="text-sm text-gray-500 ml-2">
+                                                - {formatFileSize(format.fileSize)}
+                                            </span>
+                                            <div className="text-xs text-gray-600 mt-1">
+                                                {format.hasVideo && format.hasAudio && 'Video + Audio'}
+                                                {format.hasVideo && !format.hasAudio && 'Solo Video'}
+                                                {!format.hasVideo && format.hasAudio && 'Solo Audio'}
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => handleDownload(format)}
+                                            disabled={downloading === format.itag}
+                                            className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50 flex items-center gap-2 transition-colors min-w-[100px] justify-center"
+                                        >
+                                            {downloading === format.itag ? (
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                            ) : (
+                                                <Download className="w-4 h-4" />
+                                            )}
+                                            {downloading === format.itag ? 'Descargando...' : 'Descargar'}
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                <div className="mt-8 p-4 bg-yellow-900 border border-yellow-700 rounded">
+                    <p className="text-sm text-yellow-300">
+                        <strong>Aviso:</strong> Esta herramienta es solo para fines educativos.
+                        Por favor respeta las leyes de derechos de autor y los Términos de Servicio de YouTube.
+                    </p>
+                </div>
+            </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
+    );
 }
