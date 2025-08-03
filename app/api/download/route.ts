@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import ytdl from '@distube/ytdl-core';
+import { YouTubeService } from '../../../lib/youtube';
 
 export async function POST(request: NextRequest) {
     try {
@@ -15,19 +15,26 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const url = `https://www.youtube.com/watch?v=${videoId}`;
         const safeTitle = title?.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_') || `video_${videoId}`;
 
         try {
-            const info = await ytdl.getInfo(url);
-            const selectedFormat = info.formats.find(f => f.itag === parseInt(itag));
+            const downloadUrl = await YouTubeService.getVideoDownloadUrl(videoId, parseInt(itag));
 
-            if (!selectedFormat) {
+            if (!downloadUrl) {
                 return NextResponse.json(
-                    { success: false, error: 'Format not found' },
+                    { success: false, error: 'Could not get download URL. Video may be restricted or unavailable.' },
                     { status: 404 }
                 );
             }
+
+            const response = await fetch(downloadUrl);
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch video: ${response.status}`);
+            }
+
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
 
             let filename: string;
             let contentType: string;
@@ -40,37 +47,15 @@ export async function POST(request: NextRequest) {
                 contentType = 'video/mp4';
             }
 
-            const videoStream = ytdl(url, { format: selectedFormat });
+            const headers = new Headers();
+            headers.set('Content-Type', contentType);
+            headers.set('Content-Disposition', `attachment; filename="${filename}"`);
+            headers.set('Content-Length', buffer.length.toString());
 
-            const chunks: Buffer[] = [];
-
-            return new Promise<Response>((resolve, reject) => {
-                videoStream.on('data', (chunk: Buffer) => {
-                    chunks.push(chunk);
-                });
-
-                videoStream.on('end', () => {
-                    const buffer = Buffer.concat(chunks);
-
-                    const headers = new Headers();
-                    headers.set('Content-Type', contentType);
-                    headers.set('Content-Disposition', `attachment; filename="${filename}"`);
-                    headers.set('Content-Length', buffer.length.toString());
-
-                    resolve(new Response(buffer, { headers }));
-                });
-
-                videoStream.on('error', (error) => {
-                    console.error('Stream error:', error);
-                    reject(new Response(
-                        JSON.stringify({ success: false, error: 'Stream error: ' + error.message }),
-                        { status: 500, headers: { 'Content-Type': 'application/json' } }
-                    ));
-                });
-            });
+            return new Response(buffer, { headers });
 
         } catch (execError) {
-            console.error('ytdl execution error:', execError);
+            console.error('Download execution error:', execError);
             return NextResponse.json(
                 { success: false, error: 'Download failed: ' + (execError instanceof Error ? execError.message : String(execError)) },
                 { status: 500 }
@@ -95,31 +80,28 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-        const videoStream = ytdl(url, { quality: 'highest' });
+        const videoIdMatch = url.match(/(?:v=|\/watch\?v=|youtu\.be\/)([^&\n?#]+)/);
+        if (!videoIdMatch) {
+            return new Response('Invalid YouTube URL', { status: 400 });
+        }
 
-        const chunks: Buffer[] = [];
+        const videoId = videoIdMatch[1];
+        const downloadUrl = await YouTubeService.getVideoDownloadUrl(videoId, 18);
 
-        return new Promise<Response>((resolve, reject) => {
-            videoStream.on('data', (chunk: Buffer) => {
-                chunks.push(chunk);
-            });
+        if (!downloadUrl) {
+            return new Response('Could not get download URL', { status: 404 });
+        }
 
-            videoStream.on('end', () => {
-                const buffer = Buffer.concat(chunks);
+        const response = await fetch(downloadUrl);
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
 
-                resolve(new Response(buffer, {
-                    headers: {
-                        'Content-Type': 'video/mp4',
-                        'Content-Disposition': 'attachment; filename="video.mp4"',
-                        'Content-Length': buffer.length.toString(),
-                    },
-                }));
-            });
-
-            videoStream.on('error', (error) => {
-                console.error('Stream error:', error);
-                reject(new Response('Download failed: ' + error.message, { status: 500 }));
-            });
+        return new Response(buffer, {
+            headers: {
+                'Content-Type': 'video/mp4',
+                'Content-Disposition': 'attachment; filename="video.mp4"',
+                'Content-Length': buffer.length.toString(),
+            },
         });
 
     } catch (error) {

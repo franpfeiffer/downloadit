@@ -1,5 +1,3 @@
-import ytdl from '@distube/ytdl-core';
-
 interface VideoFormat {
     quality: string;
     format: string;
@@ -33,106 +31,100 @@ function spawnDownloadProcess(url: string) {
 }
 
 async function getVideoInfo(videoId: string): Promise<VideoInfo> {
-    const url = `https://www.youtube.com/watch?v=${videoId}`;
+    const apiKey = process.env.YOUTUBE_API_KEY;
+
+    if (!apiKey) {
+        throw new Error('YouTube API key not configured. Please set YOUTUBE_API_KEY environment variable.');
+    }
 
     try {
-        const info = await ytdl.getInfo(url);
+        const response = await fetch(
+            `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoId}&key=${apiKey}`
+        );
 
-        const allFormats = info.formats.map(format => ({
-            quality: format.qualityLabel || 'Unknown',
-            format: format.container || 'mp4',
-            hasVideo: !!format.hasVideo,
-            hasAudio: !!format.hasAudio,
-            itag: format.itag,
-            audioBitrate: format.audioBitrate,
-            height: format.height
-        }));
-
-        const selectedFormats: VideoFormat[] = [];
-        const resolutionsAdded = new Set<string>();
-        let audioOnlyAdded = false;
-
-        const videoOnlyQualities = ['1080p', '720p'];
-        const videoAudioQuality = '360p';
-
-        allFormats.sort((a, b) => {
-            const aHeight = a.height || 0;
-            const bHeight = b.height || 0;
-            return bHeight - aHeight;
-        });
-
-        for (const format of allFormats) {
-            if (!format.hasVideo && format.hasAudio && !audioOnlyAdded) {
-                selectedFormats.push({
-                    quality: 'Audio Only',
-                    format: 'mp3',
-                    hasVideo: false,
-                    hasAudio: true,
-                    itag: format.itag
-                });
-                audioOnlyAdded = true;
-                continue;
-            }
-
-            if (videoOnlyQualities.includes(format.quality) && format.hasVideo && !format.hasAudio) {
-                if (!resolutionsAdded.has(format.quality)) {
-                    selectedFormats.push({
-                        quality: format.quality,
-                        format: format.format,
-                        hasVideo: true,
-                        hasAudio: false,
-                        itag: format.itag
-                    });
-                    resolutionsAdded.add(format.quality);
-                }
-            }
-
-            if (format.quality === videoAudioQuality && format.hasVideo && format.hasAudio) {
-                if (!resolutionsAdded.has(format.quality)) {
-                    selectedFormats.push({
-                        quality: format.quality,
-                        format: format.format,
-                        hasVideo: true,
-                        hasAudio: true,
-                        itag: format.itag
-                    });
-                    resolutionsAdded.add(format.quality);
-                }
-            }
+        if (!response.ok) {
+            throw new Error(`YouTube API error: ${response.status}`);
         }
 
-        if (!audioOnlyAdded) {
-            const audioFormat = allFormats.find(f => f.hasAudio && !f.hasVideo);
-            if (audioFormat) {
-                selectedFormats.push({
-                    quality: 'Audio Only',
-                    format: 'mp3',
-                    hasVideo: false,
-                    hasAudio: true,
-                    itag: audioFormat.itag
-                });
-            }
+        const data = await response.json();
+
+        if (!data.items || data.items.length === 0) {
+            throw new Error('Video not found');
         }
+
+        const video = data.items[0];
+        const duration = parseDuration(video.contentDetails.duration);
+
+        const formats: VideoFormat[] = [
+            {
+                quality: '1080p',
+                format: 'mp4',
+                hasVideo: true,
+                hasAudio: false,
+                itag: 137
+            },
+            {
+                quality: '720p',
+                format: 'mp4',
+                hasVideo: true,
+                hasAudio: false,
+                itag: 136
+            },
+            {
+                quality: '360p',
+                format: 'mp4',
+                hasVideo: true,
+                hasAudio: true,
+                itag: 18
+            },
+            {
+                quality: 'Audio Only',
+                format: 'mp3',
+                hasVideo: false,
+                hasAudio: true,
+                itag: 140
+            }
+        ];
 
         return {
             videoId,
-            title: info.videoDetails.title || 'Unknown Title',
-            thumbnail: info.videoDetails.thumbnails?.[0]?.url || '',
-            duration: parseInt(info.videoDetails.lengthSeconds) || 0,
-            author: info.videoDetails.author?.name || 'Unknown',
-            viewCount: parseInt(info.videoDetails.viewCount) || 0,
-            formats: selectedFormats.sort((a, b) => {
-                if (a.hasVideo && !b.hasVideo) return -1;
-                if (!a.hasVideo && b.hasVideo) return 1;
-
-                const aHeight = parseInt(a.quality.replace('p', '')) || 0;
-                const bHeight = parseInt(b.quality.replace('p', '')) || 0;
-                return bHeight - aHeight;
-            })
+            title: video.snippet.title || 'Unknown Title',
+            thumbnail: video.snippet.thumbnails?.high?.url || video.snippet.thumbnails?.default?.url || '',
+            duration,
+            author: video.snippet.channelTitle || 'Unknown',
+            viewCount: parseInt(video.statistics.viewCount) || 0,
+            formats
         };
+
     } catch (error) {
         console.error('Error getting video info:', error);
         throw new Error(`Failed to get video info: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+
+function parseDuration(duration: string): number {
+    const match = duration.match(/PT(\d+H)?(\d+M)?(\d+S)?/);
+    if (!match) return 0;
+
+    const hours = (match[1] ? parseInt(match[1]) : 0);
+    const minutes = (match[2] ? parseInt(match[2]) : 0);
+    const seconds = (match[3] ? parseInt(match[3]) : 0);
+
+    return hours * 3600 + minutes * 60 + seconds;
+}
+
+async function getVideoDownloadUrl(videoId: string, itag: number): Promise<string | null> {
+    try {
+        const ytdl = await import('@distube/ytdl-core');
+        const url = `https://www.youtube.com/watch?v=${videoId}`;
+
+        const info = await ytdl.default.getInfo(url);
+        const format = info.formats.find(f => f.itag === itag);
+
+        return format?.url || null;
+    } catch (error) {
+        console.error('Error getting download URL:', error);
+        return null;
     }
 }
 
@@ -140,5 +132,6 @@ export const YouTubeService = {
     getDownloadCommand,
     getAvailableFormats,
     spawnDownloadProcess,
-    getVideoInfo
+    getVideoInfo,
+    getVideoDownloadUrl
 };
