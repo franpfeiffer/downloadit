@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { readFile, unlink } from 'fs/promises';
-import { join } from 'path';
-import { tmpdir } from 'os';
-
-const execAsync = promisify(exec);
+import ytdl from '@distube/ytdl-core';
 
 export async function POST(request: NextRequest) {
     try {
@@ -23,51 +17,60 @@ export async function POST(request: NextRequest) {
 
         const url = `https://www.youtube.com/watch?v=${videoId}`;
         const safeTitle = title?.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_') || `video_${videoId}`;
-        const timestamp = Date.now();
-
-        let filename: string;
-        let ytdlpCommand: string;
-        let tempFilePath: string;
-
-        if (format === 'Audio Only') {
-            filename = `${safeTitle}.mp3`;
-            tempFilePath = join(tmpdir(), `${timestamp}_${safeTitle}.%(ext)s`);
-            ytdlpCommand = `yt-dlp -f "bestaudio" --extract-audio --audio-format mp3 -o "${tempFilePath}" "${url}"`;
-        } else {
-            filename = `${safeTitle}.${format}`;
-            tempFilePath = join(tmpdir(), `${timestamp}_${safeTitle}.%(ext)s`);
-            ytdlpCommand = `yt-dlp -f "${itag}" -o "${tempFilePath}" "${url}"`;
-        }
-
-        console.log('Executing command:', ytdlpCommand);
 
         try {
-            const { stdout, stderr } = await execAsync(ytdlpCommand);
-            console.log('yt-dlp stdout:', stdout);
-            if (stderr) console.log('yt-dlp stderr:', stderr);
+            const info = await ytdl.getInfo(url);
+            const selectedFormat = info.formats.find(f => f.itag === parseInt(itag));
 
-            let actualFilePath: string;
-            if (format === 'Audio Only') {
-                actualFilePath = tempFilePath.replace('.%(ext)s', '.mp3');
-            } else {
-                actualFilePath = tempFilePath.replace('.%(ext)s', `.${format}`);
+            if (!selectedFormat) {
+                return NextResponse.json(
+                    { success: false, error: 'Format not found' },
+                    { status: 404 }
+                );
             }
 
-            console.log('Looking for file at:', actualFilePath);
+            let filename: string;
+            let contentType: string;
 
-            const fileBuffer = await readFile(actualFilePath);
+            if (format === 'Audio Only') {
+                filename = `${safeTitle}.mp3`;
+                contentType = 'audio/mpeg';
+            } else {
+                filename = `${safeTitle}.mp4`;
+                contentType = 'video/mp4';
+            }
 
-            await unlink(actualFilePath).catch(err => console.log('Error deleting temp file:', err));
+            const videoStream = ytdl(url, { format: selectedFormat });
 
-            const headers = new Headers();
-            headers.set('Content-Type', format === 'Audio Only' ? 'audio/mpeg' : 'video/mp4');
-            headers.set('Content-Disposition', `attachment; filename="${filename}"`);
-            headers.set('Content-Length', fileBuffer.length.toString());
+            const chunks: Buffer[] = [];
 
-            return new Response(fileBuffer, { headers });
+            return new Promise<Response>((resolve, reject) => {
+                videoStream.on('data', (chunk: Buffer) => {
+                    chunks.push(chunk);
+                });
+
+                videoStream.on('end', () => {
+                    const buffer = Buffer.concat(chunks);
+
+                    const headers = new Headers();
+                    headers.set('Content-Type', contentType);
+                    headers.set('Content-Disposition', `attachment; filename="${filename}"`);
+                    headers.set('Content-Length', buffer.length.toString());
+
+                    resolve(new Response(buffer, { headers }));
+                });
+
+                videoStream.on('error', (error) => {
+                    console.error('Stream error:', error);
+                    reject(new Response(
+                        JSON.stringify({ success: false, error: 'Stream error: ' + error.message }),
+                        { status: 500, headers: { 'Content-Type': 'application/json' } }
+                    ));
+                });
+            });
 
         } catch (execError) {
-            console.error('yt-dlp execution error:', execError);
+            console.error('ytdl execution error:', execError);
             return NextResponse.json(
                 { success: false, error: 'Download failed: ' + (execError instanceof Error ? execError.message : String(execError)) },
                 { status: 500 }
@@ -91,29 +94,34 @@ export async function GET(req: NextRequest) {
         return new Response('Missing URL', { status: 400 });
     }
 
-    const timestamp = Date.now();
-    const tempFilePath = join(tmpdir(), `${timestamp}_video.%(ext)s`);
-
     try {
-        const command = `yt-dlp -f "bv*+ba/best" -o "${tempFilePath}" "${url}"`;
-        console.log('Executing GET command:', command);
+        const videoStream = ytdl(url, { quality: 'highest' });
 
-        const { stdout, stderr } = await execAsync(command);
-        console.log('yt-dlp stdout:', stdout);
-        if (stderr) console.log('yt-dlp stderr:', stderr);
+        const chunks: Buffer[] = [];
 
-        const actualFilePath = tempFilePath.replace('.%(ext)s', '.mp4');
-        const fileBuffer = await readFile(actualFilePath);
+        return new Promise<Response>((resolve, reject) => {
+            videoStream.on('data', (chunk: Buffer) => {
+                chunks.push(chunk);
+            });
 
-        await unlink(actualFilePath).catch(err => console.log('Error deleting temp file:', err));
+            videoStream.on('end', () => {
+                const buffer = Buffer.concat(chunks);
 
-        return new Response(fileBuffer, {
-            headers: {
-                'Content-Type': 'video/mp4',
-                'Content-Disposition': 'attachment; filename="video.mp4"',
-                'Content-Length': fileBuffer.length.toString(),
-            },
+                resolve(new Response(buffer, {
+                    headers: {
+                        'Content-Type': 'video/mp4',
+                        'Content-Disposition': 'attachment; filename="video.mp4"',
+                        'Content-Length': buffer.length.toString(),
+                    },
+                }));
+            });
+
+            videoStream.on('error', (error) => {
+                console.error('Stream error:', error);
+                reject(new Response('Download failed: ' + error.message, { status: 500 }));
+            });
         });
+
     } catch (error) {
         console.error('Error in GET download:', error);
         return new Response('Download failed: ' + (error instanceof Error ? error.message : String(error)), { status: 500 });

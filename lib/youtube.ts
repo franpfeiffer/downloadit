@@ -1,7 +1,4 @@
-import { exec, spawn } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
+import ytdl from '@distube/ytdl-core';
 
 interface VideoFormat {
     quality: string;
@@ -28,161 +25,115 @@ function getDownloadCommand(url: string): string[] {
 }
 
 async function getAvailableFormats(url: string): Promise<string> {
-    const { exec } = await import('child_process');
-    return new Promise((resolve, reject) => {
-        exec(`yt-dlp -F "${url}"`, (error, stdout, stderr) => {
-            if (error) {
-                reject(stderr || error);
-            } else {
-                resolve(stdout);
-            }
-        });
-    });
+    throw new Error('This function requires yt-dlp binary which is not available in production');
 }
 
 function spawnDownloadProcess(url: string) {
-    const args = getDownloadCommand(url);
-    return spawn('yt-dlp', args);
+    throw new Error('This function requires yt-dlp binary which is not available in production');
 }
 
 async function getVideoInfo(videoId: string): Promise<VideoInfo> {
     const url = `https://www.youtube.com/watch?v=${videoId}`;
 
     try {
-        // Get video info in JSON format
-        const { stdout } = await execAsync(`yt-dlp -j "${url}"`);
-        const videoData = JSON.parse(stdout);
+        const info = await ytdl.getInfo(url);
 
-        // Get available formats
-        const { stdout: formatsOutput } = await execAsync(`yt-dlp -F "${url}"`);
+        const allFormats = info.formats.map(format => ({
+            quality: format.qualityLabel || (format.audioBitrate ? 'Audio Only' : 'Unknown'),
+            format: format.container || 'mp4',
+            hasVideo: !!format.hasVideo,
+            hasAudio: !!format.hasAudio,
+            itag: format.itag,
+            audioBitrate: format.audioBitrate,
+            height: format.height
+        }));
 
-        // Parse formats from the output
-        const formats = parseFormats(formatsOutput);
+        const selectedFormats: VideoFormat[] = [];
+        const resolutionsAdded = new Set<string>();
+        let audioOnlyAdded = false;
+
+        const videoOnlyQualities = ['1080p', '720p'];
+        const videoAudioQuality = '360p';
+
+        allFormats.sort((a, b) => {
+            const aHeight = a.height || 0;
+            const bHeight = b.height || 0;
+            return bHeight - aHeight;
+        });
+
+        for (const format of allFormats) {
+            if (format.quality === 'Audio Only' && !format.hasVideo && format.hasAudio && !audioOnlyAdded) {
+                selectedFormats.push({
+                    quality: 'Audio Only',
+                    format: 'mp3',
+                    hasVideo: false,
+                    hasAudio: true,
+                    itag: format.itag
+                });
+                audioOnlyAdded = true;
+                continue;
+            }
+
+            if (videoOnlyQualities.includes(format.quality) && format.hasVideo && !format.hasAudio) {
+                if (!resolutionsAdded.has(format.quality)) {
+                    selectedFormats.push({
+                        quality: format.quality,
+                        format: format.format,
+                        hasVideo: true,
+                        hasAudio: false,
+                        itag: format.itag
+                    });
+                    resolutionsAdded.add(format.quality);
+                }
+            }
+
+            if (format.quality === videoAudioQuality && format.hasVideo && format.hasAudio) {
+                if (!resolutionsAdded.has(format.quality)) {
+                    selectedFormats.push({
+                        quality: format.quality,
+                        format: format.format,
+                        hasVideo: true,
+                        hasAudio: true,
+                        itag: format.itag
+                    });
+                    resolutionsAdded.add(format.quality);
+                }
+            }
+        }
+
+        if (!audioOnlyAdded) {
+            const audioFormat = allFormats.find(f => f.hasAudio && !f.hasVideo);
+            if (audioFormat) {
+                selectedFormats.push({
+                    quality: 'Audio Only',
+                    format: 'mp3',
+                    hasVideo: false,
+                    hasAudio: true,
+                    itag: audioFormat.itag
+                });
+            }
+        }
 
         return {
             videoId,
-            title: videoData.title || 'Unknown Title',
-            thumbnail: videoData.thumbnail || '',
-            duration: videoData.duration || 0,
-            author: videoData.uploader || videoData.channel || 'Unknown',
-            viewCount: videoData.view_count || 0,
-            formats
+            title: info.videoDetails.title || 'Unknown Title',
+            thumbnail: info.videoDetails.thumbnails?.[0]?.url || '',
+            duration: parseInt(info.videoDetails.lengthSeconds) || 0,
+            author: info.videoDetails.author?.name || 'Unknown',
+            viewCount: parseInt(info.videoDetails.viewCount) || 0,
+            formats: selectedFormats.sort((a, b) => {
+                if (a.hasVideo && !b.hasVideo) return -1;
+                if (!a.hasVideo && b.hasVideo) return 1;
+
+                const aHeight = parseInt(a.quality.replace('p', '')) || 0;
+                const bHeight = parseInt(b.quality.replace('p', '')) || 0;
+                return bHeight - aHeight;
+            })
         };
     } catch (error) {
         console.error('Error getting video info:', error);
         throw new Error(`Failed to get video info: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-}
-
-function parseFormats(formatsOutput: string): VideoFormat[] {
-    const lines = formatsOutput.split('\n');
-    const allFormats: VideoFormat[] = [];
-
-    let startIndex = -1;
-    for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes('ID') && lines[i].includes('EXT') && lines[i].includes('RESOLUTION')) {
-            startIndex = i + 1;
-            break;
-        }
-    }
-
-    if (startIndex === -1) {
-        return [];
-    }
-
-    for (let i = startIndex; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line || line.startsWith('----')) continue;
-
-        const parts = line.split(/\s+/);
-        if (parts.length < 3) continue;
-
-        const itag = parts[0];
-        const ext = parts[1];
-        const resolution = parts[2];
-
-        if (isNaN(parseInt(itag))) continue;
-
-        const isAudioOnly = line.toLowerCase().includes('audio only') || resolution === 'audio';
-        const isVideoOnly = line.toLowerCase().includes('video only');
-
-        const hasVideo = !isAudioOnly;
-        const hasAudio = !isVideoOnly;
-
-        let quality = resolution;
-        if (isAudioOnly || resolution === 'audio') {
-            quality = 'Audio Only';
-        } else if (resolution.includes('x')) {
-            const height = resolution.split('x')[1];
-            quality = `${height}p`;
-        }
-
-        allFormats.push({
-            quality,
-            format: ext,
-            hasVideo,
-            hasAudio,
-            itag: parseInt(itag)
-        });
-    }
-
-    const selectedFormats: VideoFormat[] = [];
-    const resolutionsAdded = new Set<string>();
-    const videoOnlyQualities = ['1080p', '720p'];
-    const videoAudioQuality = '360p';
-    let audioOnlyAdded = false;
-
-    allFormats.sort((a, b) => {
-        const aHeight = parseInt(a.quality.replace('p', '')) || 0;
-        const bHeight = parseInt(b.quality.replace('p', '')) || 0;
-        return bHeight - aHeight;
-    });
-
-    for (const format of allFormats) {
-        if (format.quality === 'Audio Only' && !audioOnlyAdded) {
-            selectedFormats.push(format);
-            audioOnlyAdded = true;
-            continue;
-        }
-
-        if (videoOnlyQualities.includes(format.quality) && format.hasVideo && !format.hasAudio) {
-            if (!resolutionsAdded.has(format.quality)) {
-                selectedFormats.push(format);
-                resolutionsAdded.add(format.quality);
-            }
-        }
-
-        if (format.quality === videoAudioQuality && format.hasVideo && format.hasAudio) {
-            if (!resolutionsAdded.has(format.quality)) {
-                selectedFormats.push(format);
-                resolutionsAdded.add(format.quality);
-            }
-        }
-    }
-
-    if (!audioOnlyAdded) {
-        for (const format of allFormats) {
-            if (!format.hasVideo && format.hasAudio) {
-                selectedFormats.push({
-                    quality: 'Audio Only',
-                    format: format.format,
-                    hasVideo: false,
-                    hasAudio: true,
-                    itag: format.itag
-                });
-                break;
-            }
-        }
-    }
-
-    return selectedFormats.sort((a, b) => {
-        if (a.hasVideo && !b.hasVideo) return -1;
-        if (!a.hasVideo && b.hasVideo) return 1;
-
-        const aHeight = parseInt(a.quality.replace('p', '')) || 0;
-        const bHeight = parseInt(b.quality.replace('p', '')) || 0;
-        return bHeight - aHeight;
-    });
 }
 
 export const YouTubeService = {

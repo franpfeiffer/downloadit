@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import ytdl from '@distube/ytdl-core';
 
 export async function GET(request: NextRequest) {
     try {
@@ -15,11 +16,10 @@ export async function GET(request: NextRequest) {
             );
         }
 
-        const ytdl = await import('@distube/ytdl-core');
         const url = `https://www.youtube.com/watch?v=${videoId}`;
 
         console.log('Obteniendo info para stream...');
-        const info = await ytdl.default.getInfo(url);
+        const info = await ytdl.getInfo(url);
         const format = info.formats.find((f: any) => f.itag === parseInt(itag));
 
         if (!format) {
