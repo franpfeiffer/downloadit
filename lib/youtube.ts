@@ -39,7 +39,7 @@ async function getVideoInfo(videoId: string): Promise<VideoInfo> {
         const info = await ytdl.getInfo(url);
 
         const allFormats = info.formats.map(format => ({
-            quality: format.qualityLabel || (format.audioBitrate ? 'Audio Only' : 'Unknown'),
+            quality: format.qualityLabel || 'Unknown',
             format: format.container || 'mp4',
             hasVideo: !!format.hasVideo,
             hasAudio: !!format.hasAudio,
@@ -62,7 +62,7 @@ async function getVideoInfo(videoId: string): Promise<VideoInfo> {
         });
 
         for (const format of allFormats) {
-            if (format.quality === 'Audio Only' && !format.hasVideo && format.hasAudio && !audioOnlyAdded) {
+            if (!format.hasVideo && format.hasAudio && !audioOnlyAdded) {
                 selectedFormats.push({
                     quality: 'Audio Only',
                     format: 'mp3',
