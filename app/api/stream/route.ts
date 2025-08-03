@@ -15,11 +15,11 @@ export async function GET(request: NextRequest) {
             );
         }
 
-        const ytdl = require('@distube/ytdl-core');
+        const ytdl = await import('@distube/ytdl-core');
         const url = `https://www.youtube.com/watch?v=${videoId}`;
 
         console.log('Obteniendo info para stream...');
-        const info = await ytdl.getInfo(url);
+        const info = await ytdl.default.getInfo(url);
         const format = info.formats.find((f: any) => f.itag === parseInt(itag));
 
         if (!format) {
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
     } catch (error) {
         console.error('Error en stream API:', error);
         return NextResponse.json(
-            { success: false, error: 'Error en streaming: ' + error.message },
+            { success: false, error: 'Error en streaming: ' + (error instanceof Error ? error.message : String(error)) },
             { status: 500 }
         );
     }

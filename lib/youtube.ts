@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
@@ -41,7 +41,6 @@ async function getAvailableFormats(url: string): Promise<string> {
 }
 
 function spawnDownloadProcess(url: string) {
-    const { spawn } = require('child_process');
     const args = getDownloadCommand(url);
     return spawn('yt-dlp', args);
 }

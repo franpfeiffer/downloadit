@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
         } catch (execError) {
             console.error('yt-dlp execution error:', execError);
             return NextResponse.json(
-                { success: false, error: 'Download failed: ' + execError.message },
+                { success: false, error: 'Download failed: ' + (execError instanceof Error ? execError.message : String(execError)) },
                 { status: 500 }
             );
         }
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     } catch (error) {
         console.error('Error in download API:', error);
         return NextResponse.json(
-            { success: false, error: 'Request processing failed: ' + error.message },
+            { success: false, error: 'Request processing failed: ' + (error instanceof Error ? error.message : String(error)) },
             { status: 500 }
         );
     }
@@ -116,6 +116,6 @@ export async function GET(req: NextRequest) {
         });
     } catch (error) {
         console.error('Error in GET download:', error);
-        return new Response('Download failed: ' + error.message, { status: 500 });
+        return new Response('Download failed: ' + (error instanceof Error ? error.message : String(error)), { status: 500 });
     }
 }
