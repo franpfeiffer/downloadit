@@ -17,10 +17,11 @@ interface VideoInfo {
 interface VideoFormat {
     quality: string;
     format: string;
-    fileSize: number;
     hasVideo: boolean;
     hasAudio: boolean;
-    itag: number;
+    itag: string | number;
+    originalQuality?: string;
+    needsAudioMerge?: boolean;
 }
 
 const validateYouTubeUrl = (url: string) => {
@@ -60,7 +61,7 @@ export default function Home() {
     const [url, setUrl] = useState('');
     const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
     const [loading, setLoading] = useState(false);
-    const [downloading, setDownloading] = useState<number | null>(null);
+    const [downloading, setDownloading] = useState<string | null>(null);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
 
@@ -93,7 +94,8 @@ export default function Home() {
     const handleDownload = async (format: VideoFormat) => {
         if (!videoInfo) return;
 
-        setDownloading(format.itag);
+        const formatId = format.itag.toString();
+        setDownloading(formatId);
         setError('');
         setSuccess('');
 
@@ -102,7 +104,7 @@ export default function Home() {
 
             const response = await axios.post('/api/download', {
                 videoId: videoInfo.videoId,
-                itag: format.itag,
+                itag: formatId,
                 title: videoInfo.title,
                 format: format.format
             });
@@ -110,13 +112,11 @@ export default function Home() {
             console.log('Respuesta del servidor:', response.data);
 
             if (response.data.success && response.data.data.downloadUrl) {
-                // Crear un enlace de descarga
                 const link = document.createElement('a');
                 link.href = response.data.data.downloadUrl;
                 link.download = response.data.data.filename;
                 link.target = '_blank';
 
-                // Agregar al DOM y hacer clic
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
@@ -128,9 +128,9 @@ export default function Home() {
 
             setTimeout(() => setSuccess(''), 5000);
 
-        } catch (err) {
+        } catch (err: any) {
             console.error('Error en descarga:', err);
-            setError('Error al iniciar la descarga: ' + err.message);
+            setError('Error al iniciar la descarga: ' + (err.response?.data?.error || err.message));
         } finally {
             setDownloading(null);
         }
@@ -212,7 +212,6 @@ export default function Home() {
                                             <span className="font-medium text-white">{format.quality}</span>
                                             <span className="text-gray-400 ml-2">({format.format})</span>
                                             <span className="text-sm text-gray-500 ml-2">
-                                                - {formatFileSize(format.fileSize)}
                                             </span>
                                             <div className="text-xs text-gray-600 mt-1">
                                                 {format.hasVideo && format.hasAudio && 'Video + Audio'}
@@ -222,15 +221,15 @@ export default function Home() {
                                         </div>
                                         <button
                                             onClick={() => handleDownload(format)}
-                                            disabled={downloading === format.itag}
+                                            disabled={downloading === format.itag.toString()}
                                             className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50 flex items-center gap-2 transition-colors min-w-[100px] justify-center"
                                         >
-                                            {downloading === format.itag ? (
+                                            {downloading === format.itag.toString() ? (
                                                 <Loader2 className="w-4 h-4 animate-spin" />
                                             ) : (
                                                 <Download className="w-4 h-4" />
                                             )}
-                                            {downloading === format.itag ? 'Descargando...' : 'Descargar'}
+                                            {downloading === format.itag.toString() ? 'Descargando...' : 'Descargar'}
                                         </button>
                                     </div>
                                 ))}

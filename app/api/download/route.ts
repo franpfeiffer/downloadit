@@ -1,44 +1,21 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { YouTubeService } from '../../../lib/youtube';
+import { NextRequest } from 'next/server'
+import { spawn } from 'child_process'
 
-export async function POST(request: NextRequest) {
-    console.log('=== DOWNLOAD API ===');
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const url = searchParams.get('url')
 
-    try {
-        const body = await request.json();
-        console.log('Datos recibidos:', body);
+  if (!url) {
+    return new Response('Missing URL', { status: 400 })
+  }
 
-        const { videoId, itag, title, format } = body;
+  const ytdlp = spawn('yt-dlp', ['-f', 'bv*+ba/best', '-o', '-', url])
 
-        if (!videoId || !itag) {
-            return NextResponse.json(
-                { success: false, error: 'videoId e itag requeridos' },
-                { status: 400 }
-            );
-        }
-
-        console.log('Obteniendo URL directa de descarga...');
-        const directUrl = await YouTubeService.getDirectDownloadUrl(videoId, itag);
-
-        console.log('URL directa obtenida exitosamente');
-
-        return NextResponse.json({
-            success: true,
-            data: {
-                downloadUrl: directUrl,
-                filename: `${title || 'video'}_${itag}.${format || 'mp4'}`,
-                directDownload: true
-            }
-        });
-
-    } catch (error) {
-        console.error('Error en download API:', error);
-        return NextResponse.json(
-            {
-                success: false,
-                error: 'Error: ' + error.message
-            },
-            { status: 500 }
-        );
-    }
+  return new Response(ytdlp.stdout as any, {
+    headers: {
+      'Content-Type': 'video/mp4',
+      'Content-Disposition': 'attachment; filename="video.mp4"',
+    },
+  })
 }
+

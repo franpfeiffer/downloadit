@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
             );
         }
 
-        const ytdl = require('ytdl-core');
+        const ytdl = require('@distube/ytdl-core');
         const url = `https://www.youtube.com/watch?v=${videoId}`;
 
         console.log('Obteniendo info para stream...');
