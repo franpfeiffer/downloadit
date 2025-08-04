@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Video, Download, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
-import axios from 'axios';
+import { Video, Download, Loader2, AlertCircle, CheckCircle, Copy, Check } from 'lucide-react';
 
 interface VideoInfo {
     videoId: string;
@@ -59,6 +58,50 @@ export default function Home() {
     const [downloading, setDownloading] = useState<string | null>(null);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [showDonations, setShowDonations] = useState(false);
+    const [copiedAddress, setCopiedAddress] = useState('');
+
+    const copyToClipboard = async (text: string, type: string) => {
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+            } else {
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                textArea.style.top = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                document.execCommand('copy');
+                textArea.remove();
+            }
+            setCopiedAddress(type);
+            setTimeout(() => setCopiedAddress(''), 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            document.execCommand('copy');
+            textArea.remove();
+            setCopiedAddress(type);
+            setTimeout(() => setCopiedAddress(''), 2000);
+        }
+    };
+
+    const getFormatDisplay = (format: VideoFormat) => {
+        if (format.quality === 'Audio Only') {
+            return 'mp3';
+        }
+        return format.format;
+    };
 
     const handleGetInfo = async () => {
         setError('');
@@ -72,12 +115,13 @@ export default function Home() {
 
         setLoading(true);
         try {
-            const response = await axios.get(`/api/video-info?videoId=${validation.videoId}`);
+            const response = await fetch(`/api/video-info?videoId=${validation.videoId}`);
+            const data = await response.json();
 
-            if (response.data.success) {
-                setVideoInfo(response.data.data);
+            if (data.success) {
+                setVideoInfo(data.data);
             } else {
-                setError(response.data.error || 'Error al obtener información del video');
+                setError(data.error || 'Error al obtener información del video');
             }
         } catch (err) {
             setError('Error al conectar con el servidor');
@@ -147,25 +191,99 @@ export default function Home() {
         }
     };
 
-    const getFormatDisplay = (format: VideoFormat) => {
-        if (format.quality === 'Audio Only') {
-            return 'mp3';
-        }
-        return format.format;
-    };
-
     return (
-        <div className="min-h-screen bg-black">
+        <div className="min-h-screen bg-black relative">
+            <div className="hidden sm:block absolute top-4 right-4 z-10">
+                <div className="relative">
+                    <button
+                        onClick={() => setShowDonations(!showDonations)}
+                        className="bg-[#111] border border-[#222] rounded-lg px-4 py-2 text-white text-sm hover:bg-[#222] transition-colors flex items-center gap-2"
+                    >
+                        Donations
+                        <span className={`transform transition-transform ${showDonations ? 'rotate-180' : ''}`}>
+                            ▼
+                        </span>
+                    </button>
+
+                    {showDonations && (
+                        <div className="absolute top-full right-0 mt-2 bg-[#111] border border-[#222] rounded-lg p-4 min-w-[320px] shadow-xl">
+                            <h3 className="text-sm font-semibold text-white mb-3">Binance ID</h3>
+                            <div className="space-y-3 text-xs">
+                                <div>
+                                    <span className="text-gray-400 block mb-1">if you want it to go faster:</span>
+                                    <span className="text-gray-400 block mb-1">si queres que ande mas rapido:</span>
+                                    <div className="flex items-center gap-2">
+                                        <div className="text-yellow-400 font-mono text-xs break-all bg-[#222] p-2 rounded flex-1">
+                                            840670888
+                                        </div>
+                                        <button
+                                            onClick={() => copyToClipboard('tu-binance-pay-id-aqui', 'binance')}
+                                            className="bg-[#333] hover:bg-[#444] p-2 rounded transition-colors"
+                                        >
+                                            {copiedAddress === 'binance' ?
+                                                <Check className="w-3 h-3 text-green-400" /> :
+                                                <Copy className="w-3 h-3 text-gray-400" />
+                                            }
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="sm:hidden fixed bottom-4 left-4 z-10">
+                <div className="relative">
+                    <button
+                        onClick={() => setShowDonations(!showDonations)}
+                        className="bg-[#111] border border-[#222] rounded-lg px-4 py-2 text-white text-sm hover:bg-[#222] transition-colors flex items-center gap-2"
+                    >
+                        Donations
+                        <span className={`transform transition-transform ${showDonations ? 'rotate-180' : ''}`}>
+                            ▲
+                        </span>
+                    </button>
+
+                    {showDonations && (
+                        <div className="absolute bottom-full left-0 mb-2 bg-[#111] border border-[#222] rounded-lg p-4 w-[280px] shadow-xl">
+                            <h3 className="text-sm font-semibold text-white mb-3">Binance ID</h3>
+                            <div className="space-y-3 text-xs">
+                                <div>
+                                    <span className="text-gray-400 block mb-1">if you want it to go faster:</span>
+                                    <span className="text-gray-400 block mb-1">si queres que ande mas rapido:</span>
+                                    <div className="flex items-center gap-2">
+                                        <div className="text-yellow-400 font-mono text-xs break-all bg-[#222] p-2 rounded flex-1">
+                                            840670888
+                                        </div>
+                                        <button
+                                            onClick={() => copyToClipboard('tu-binance-pay-id-aqui', 'binance')}
+                                            className="bg-[#333] hover:bg-[#444] p-2 rounded transition-colors"
+                                        >
+                                            {copiedAddress === 'binance' ?
+                                                <Check className="w-3 h-3 text-green-400" /> :
+                                                <Copy className="w-3 h-3 text-gray-400" />
+                                            }
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+
             <div className="container mx-auto px-4 py-8 max-w-4xl">
                 <div className="text-center mb-8">
                     <div className="flex items-center justify-center gap-3 mb-4">
                         <Video className="w-10 h-10 text-red-500" />
                         <h1 className="text-3xl font-bold text-white">YouTube Downloader</h1>
                     </div>
+                    <p className="text-gray-400">Descarga videos de YouTube fácilmente</p>
                 </div>
 
                 <div className="bg-[#111] p-6 rounded-lg shadow mb-6 border border-[#222]">
-                    <div className="flex gap-4">
+                    <div className="flex flex-col sm:flex-row gap-4">
                         <input
                             type="text"
                             value={url}
@@ -177,7 +295,7 @@ export default function Home() {
                         <button
                             onClick={handleGetInfo}
                             disabled={loading || !url.trim()}
-                            className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2 transition-colors"
+                            className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors w-full sm:w-auto"
                         >
                             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />}
                             Fetch
@@ -210,7 +328,7 @@ export default function Home() {
                                 />
                                 <div className="flex-1">
                                     <h2 className="text-xl font-bold mb-2 text-white">{videoInfo.title}</h2>
-                                    <p className="text-gray-400 mb-2">from {videoInfo.author}</p>
+                                    <p className="text-gray-400 mb-2">Por {videoInfo.author}</p>
                                     <div className="text-sm text-gray-500">
                                         <span>{formatViews(videoInfo.viewCount)} visualizaciones</span>
                                         <span className="mx-2">•</span>
