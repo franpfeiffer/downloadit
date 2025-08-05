@@ -19,47 +19,70 @@ interface VideoInfo {
     formats: VideoFormat[];
 }
 
-// Formatos específicos que queremos mostrar
+const YTDL_OPTIONS = {
+    requestOptions: {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0'
+        }
+    }
+};
+
 const DESIRED_FORMATS = [
     {
         quality: 'Audio Only',
         format: 'mp3',
         hasVideo: false,
         hasAudio: true,
-        itag: 140, // m4a audio
-        description: 'Solo audio (MP3)'
+        itag: 140,
+        description: 'Solo audio (MP3)',
+        fallbacks: [251, 250, 249]
     },
     {
         quality: '360p',
         format: 'mp4',
         hasVideo: true,
         hasAudio: true,
-        itag: 18, // 360p mp4 con audio
-        description: 'Video 360p + Audio'
+        itag: 18, 
+        description: 'Video 360p + Audio',
+        fallbacks: [134]
     },
     {
         quality: '480p',
         format: 'mp4',
         hasVideo: true,
         hasAudio: false,
-        itag: 135, // 480p solo video
-        description: 'Video 480p (sin audio)'
+        itag: 135,
+        description: 'Video 480p (sin audio)',
+        fallbacks: [244]
     },
     {
         quality: '720p',
         format: 'mp4',
         hasVideo: true,
         hasAudio: false,
-        itag: 136, // 720p solo video
-        description: 'Video 720p (sin audio)'
+        itag: 136,
+        description: 'Video 720p (sin audio)',
+        fallbacks: [247, 298]
     },
     {
         quality: '1080p',
         format: 'mp4',
         hasVideo: true,
         hasAudio: false,
-        itag: 137, // 1080p solo video
-        description: 'Video 1080p (sin audio)'
+        itag: 137,
+        description: 'Video 1080p (sin audio)',
+        fallbacks: [248, 299]
     }
 ];
 
@@ -71,7 +94,6 @@ async function getVideoInfo(videoId: string): Promise<VideoInfo> {
     }
 
     try {
-        // Obtenemos info básica de YouTube API
         const response = await fetch(
             `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoId}&key=${apiKey}`
         );
@@ -89,17 +111,34 @@ async function getVideoInfo(videoId: string): Promise<VideoInfo> {
         const video = data.items[0];
         const duration = parseDuration(video.contentDetails.duration);
 
-        // Verificamos qué formatos están disponibles usando ytdl
         const url = `https://www.youtube.com/watch?v=${videoId}`;
         let availableFormats: VideoFormat[] = [];
 
         try {
-            console.log('Verificando formatos disponibles...');
-            const info = await ytdl.getInfo(url);
+            console.log('Verificando formatos disponibles con configuración anti-bot...');
 
-            // Mapeamos nuestros formatos deseados con los disponibles
+            let info;
+            try {
+                info = await ytdl.getInfo(url, YTDL_OPTIONS);
+            } catch (firstError) {
+                console.log('Primer intento falló, probando sin opciones personalizadas...');
+                info = await ytdl.getInfo(url);
+            }
+
+            console.log(`Total de formatos encontrados: ${info.formats.length}`);
+
             for (const desiredFormat of DESIRED_FORMATS) {
-                const foundFormat = info.formats.find((f: any) => f.itag === desiredFormat.itag);
+                let foundFormat = info.formats.find((f: any) => f.itag === desiredFormat.itag);
+
+                if (!foundFormat && desiredFormat.fallbacks) {
+                    for (const fallbackItag of desiredFormat.fallbacks) {
+                        foundFormat = info.formats.find((f: any) => f.itag === fallbackItag);
+                        if (foundFormat) {
+                            console.log(`Usando formato fallback ${fallbackItag} para ${desiredFormat.quality}`);
+                            break;
+                        }
+                    }
+                }
 
                 if (foundFormat && foundFormat.url) {
                     availableFormats.push({
@@ -107,32 +146,47 @@ async function getVideoInfo(videoId: string): Promise<VideoInfo> {
                         format: desiredFormat.format,
                         hasVideo: desiredFormat.hasVideo,
                         hasAudio: desiredFormat.hasAudio,
-                        itag: desiredFormat.itag,
+                        itag: foundFormat.itag,
                         description: desiredFormat.description
                     });
-                    console.log(`✓ Formato disponible: ${desiredFormat.quality} (itag: ${desiredFormat.itag})`);
+                    console.log(`✓ Formato disponible: ${desiredFormat.quality} (itag: ${foundFormat.itag})`);
                 } else {
                     console.log(`✗ Formato no disponible: ${desiredFormat.quality} (itag: ${desiredFormat.itag})`);
                 }
             }
 
-            // Si no encontramos ningún formato, agregamos al menos el básico
             if (availableFormats.length === 0) {
-                console.log('No se encontraron formatos específicos, buscando alternativas...');
+                console.log('No se encontraron formatos específicos, buscando cualquier formato disponible...');
 
-                // Buscar formato básico con audio
-                const basicFormat = info.formats.find((f: any) =>
-                    f.hasVideo && f.hasAudio && f.url
+                const videoWithAudio = info.formats.filter((f: any) =>
+                    f.hasVideo && f.hasAudio && f.url && f.container === 'mp4'
                 );
 
-                if (basicFormat) {
+                const audioOnly = info.formats.filter((f: any) =>
+                    !f.hasVideo && f.hasAudio && f.url
+                );
+
+                if (videoWithAudio.length > 0) {
+                    const bestVideo = videoWithAudio[0];
                     availableFormats.push({
-                        quality: 'Basic',
+                        quality: `${bestVideo.height || 'Unknown'}p`,
                         format: 'mp4',
                         hasVideo: true,
                         hasAudio: true,
-                        itag: basicFormat.itag,
-                        description: `Video básico (${basicFormat.quality || 'calidad automática'})`
+                        itag: bestVideo.itag,
+                        description: `Video ${bestVideo.height || 'Unknown'}p + Audio`
+                    });
+                }
+
+                if (audioOnly.length > 0) {
+                    const bestAudio = audioOnly[0];
+                    availableFormats.push({
+                        quality: 'Audio Only',
+                        format: 'mp3',
+                        hasVideo: false,
+                        hasAudio: true,
+                        itag: bestAudio.itag,
+                        description: 'Solo audio'
                     });
                 }
             }
@@ -140,15 +194,24 @@ async function getVideoInfo(videoId: string): Promise<VideoInfo> {
         } catch (ytdlError) {
             console.error('Error verificando formatos:', ytdlError);
 
-            // Fallback: mostramos los formatos pero sin verificar disponibilidad
-            availableFormats = DESIRED_FORMATS.map(format => ({
-                quality: format.quality,
-                format: format.format,
-                hasVideo: format.hasVideo,
-                hasAudio: format.hasAudio,
-                itag: format.itag,
-                description: format.description + ' (sin verificar)'
-            }));
+            availableFormats = [
+                {
+                    quality: '360p',
+                    format: 'mp4',
+                    hasVideo: true,
+                    hasAudio: true,
+                    itag: 18,
+                    description: 'Video 360p + Audio (formato básico)'
+                },
+                {
+                    quality: 'Audio Only',
+                    format: 'mp3',
+                    hasVideo: false,
+                    hasAudio: true,
+                    itag: 140,
+                    description: 'Solo audio (formato básico)'
+                }
+            ];
         }
 
         return {
@@ -183,12 +246,49 @@ async function getVideoDownloadUrl(videoId: string, itag: number): Promise<strin
         console.log(`Obteniendo URL para videoId: ${videoId}, itag: ${itag}`);
 
         const url = `https://www.youtube.com/watch?v=${videoId}`;
-        const info = await ytdl.getInfo(url);
+
+        let info;
+
+        try {
+            console.log('Intento 1: Con opciones anti-bot...');
+            info = await ytdl.getInfo(url, YTDL_OPTIONS);
+        } catch (error1) {
+            console.log('Intento 1 falló:', error1.message);
+
+            try {
+                console.log('Intento 2: Sin opciones especiales...');
+                info = await ytdl.getInfo(url);
+            } catch (error2) {
+                console.log('Intento 2 falló:', error2.message);
+
+                try {
+                    console.log('Intento 3: Con headers alternativos...');
+                    const altOptions = {
+                        requestOptions: {
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                            }
+                        }
+                    };
+                    info = await ytdl.getInfo(url, altOptions);
+                } catch (error3) {
+                    console.log('Todos los intentos fallaron');
+                    throw error3;
+                }
+            }
+        }
 
         const format = info.formats.find(f => f.itag === itag);
 
         if (!format) {
             console.error(`Formato itag ${itag} no encontrado`);
+            console.log('Formatos disponibles:', info.formats.map(f => ({
+                itag: f.itag,
+                quality: f.quality,
+                hasVideo: f.hasVideo,
+                hasAudio: f.hasAudio,
+                container: f.container
+            })));
             return null;
         }
 

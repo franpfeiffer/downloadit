@@ -11,14 +11,16 @@ export interface VideoInfo {
 export interface VideoFormat {
     quality: string;
     format: string;
-    fileSize: number;
     hasVideo: boolean;
     hasAudio: boolean;
+    itag: string | number;
+    description: string;
 }
 
 export interface DownloadRequest {
     videoId: string;
-    quality: string;
+    itag: string | number;
+    title: string;
     format: string;
 }
 
