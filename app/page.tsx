@@ -19,8 +19,7 @@ interface VideoFormat {
     hasVideo: boolean;
     hasAudio: boolean;
     itag: string | number;
-    originalQuality?: string;
-    needsAudioMerge?: boolean;
+    description: string;
 }
 
 const validateYouTubeUrl = (url: string) => {
@@ -49,6 +48,34 @@ const formatViews = (views: number): string => {
     if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
     if (views >= 1000) return `${(views / 1000).toFixed(1)}K`;
     return views.toString();
+};
+
+// Función para obtener el ícono según el tipo de formato
+const getFormatIcon = (format: VideoFormat) => {
+    if (!format.hasVideo && format.hasAudio) {
+        return '🎵'; // Solo audio
+    }
+    if (format.hasVideo && format.hasAudio) {
+        return '🎬'; // Video con audio
+    }
+    if (format.hasVideo && !format.hasAudio) {
+        return '📹'; // Solo video
+    }
+    return '📁';
+};
+
+// Función para obtener el color del botón según el tipo
+const getButtonColor = (format: VideoFormat) => {
+    if (!format.hasVideo && format.hasAudio) {
+        return 'bg-green-600 hover:bg-green-700'; // Audio
+    }
+    if (format.hasVideo && format.hasAudio) {
+        return 'bg-blue-600 hover:bg-blue-700'; // Video completo
+    }
+    if (format.hasVideo && !format.hasAudio) {
+        return 'bg-purple-600 hover:bg-purple-700'; // Solo video
+    }
+    return 'bg-gray-600 hover:bg-gray-700';
 };
 
 export default function Home() {
@@ -81,26 +108,7 @@ export default function Home() {
             setTimeout(() => setCopiedAddress(''), 2000);
         } catch (err) {
             console.error('Failed to copy:', err);
-            const textArea = document.createElement('textarea');
-            textArea.value = text;
-            textArea.style.position = 'fixed';
-            textArea.style.left = '-999999px';
-            textArea.style.top = '-999999px';
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-            document.execCommand('copy');
-            textArea.remove();
-            setCopiedAddress(type);
-            setTimeout(() => setCopiedAddress(''), 2000);
         }
-    };
-
-    const getFormatDisplay = (format: VideoFormat) => {
-        if (format.quality === 'Audio Only') {
-            return 'mp3';
-        }
-        return format.format;
     };
 
     const handleGetInfo = async () => {
@@ -164,10 +172,12 @@ export default function Home() {
             }
 
             let filename: string;
+            const safeTitle = videoInfo.title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
+
             if (format.quality === 'Audio Only') {
-                filename = `${videoInfo.title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_')}.mp3`;
+                filename = `${safeTitle}.mp3`;
             } else {
-                filename = `${videoInfo.title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_')}.${format.format}`;
+                filename = `${safeTitle}.mp4`;
             }
 
             const url = window.URL.createObjectURL(blob);
@@ -181,7 +191,7 @@ export default function Home() {
 
             window.URL.revokeObjectURL(url);
 
-            setSuccess(`Descarga completada: ${format.quality}`);
+            setSuccess(`Descarga completada: ${format.description}`);
             setTimeout(() => setSuccess(''), 5000);
 
         } catch (err: any) {
@@ -193,6 +203,7 @@ export default function Home() {
 
     return (
         <div className="min-h-screen bg-black relative">
+            {/* Botón de donaciones - Desktop */}
             <div className="hidden sm:block absolute top-4 right-4 z-10">
                 <div className="relative">
                     <button
@@ -217,7 +228,7 @@ export default function Home() {
                                             840670888
                                         </div>
                                         <button
-                                            onClick={() => copyToClipboard('tu-binance-pay-id-aqui', 'binance')}
+                                            onClick={() => copyToClipboard('840670888', 'binance')}
                                             className="bg-[#333] hover:bg-[#444] p-2 rounded transition-colors"
                                         >
                                             {copiedAddress === 'binance' ?
@@ -233,6 +244,7 @@ export default function Home() {
                 </div>
             </div>
 
+            {/* Botón de donaciones - Mobile */}
             <div className="sm:hidden fixed bottom-4 left-4 z-10">
                 <div className="relative">
                     <button
@@ -257,7 +269,7 @@ export default function Home() {
                                             840670888
                                         </div>
                                         <button
-                                            onClick={() => copyToClipboard('tu-binance-pay-id-aqui', 'binance')}
+                                            onClick={() => copyToClipboard('840670888', 'binance')}
                                             className="bg-[#333] hover:bg-[#444] p-2 rounded transition-colors"
                                         >
                                             {copiedAddress === 'binance' ?
@@ -274,14 +286,16 @@ export default function Home() {
             </div>
 
             <div className="container mx-auto px-4 py-8 max-w-4xl">
+                {/* Header */}
                 <div className="text-center mb-8">
                     <div className="flex items-center justify-center gap-3 mb-4">
                         <Video className="w-10 h-10 text-red-500" />
                         <h1 className="text-3xl font-bold text-white">YouTube Downloader</h1>
                     </div>
-                    <p className="text-gray-400">Descarga videos de YouTube fácilmente</p>
+                    <p className="text-gray-400">Descarga videos de YouTube en diferentes calidades</p>
                 </div>
 
+                {/* Input Section */}
                 <div className="bg-[#111] p-6 rounded-lg shadow mb-6 border border-[#222]">
                     <div className="flex flex-col sm:flex-row gap-4">
                         <input
@@ -298,10 +312,11 @@ export default function Home() {
                             className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors w-full sm:w-auto"
                         >
                             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />}
-                            Fetch
+                            Buscar Video
                         </button>
                     </div>
 
+                    {/* Messages */}
                     {error && (
                         <div className="mt-4 p-3 bg-red-900 border border-red-800 rounded flex items-center gap-2">
                             <AlertCircle className="w-4 h-4 text-red-400" />
@@ -317,8 +332,10 @@ export default function Home() {
                     )}
                 </div>
 
+                {/* Video Info and Download Options */}
                 {videoInfo && (
                     <div className="bg-[#111] rounded-lg shadow overflow-hidden border border-[#222]">
+                        {/* Video Info */}
                         <div className="p-6">
                             <div className="flex gap-6">
                                 <img
@@ -338,38 +355,54 @@ export default function Home() {
                             </div>
                         </div>
 
+                        {/* Download Options */}
                         <div className="border-t border-[#222] p-6">
-                            <div className="space-y-3">
-                                {videoInfo.formats.map((format, index) => (
-                                    <div key={index} className="flex items-center justify-between p-3 border border-[#222] rounded bg-[#111]">
-                                        <div>
-                                            <span className="font-medium text-white">{format.quality}</span>
-                                            <span className="text-gray-400 ml-2">({getFormatDisplay(format)})</span>
-                                            <div className="text-xs text-gray-600 mt-1">
-                                                {format.hasVideo && format.hasAudio && 'Video + Audio'}
-                                                {format.hasVideo && !format.hasAudio && 'Solo Video'}
-                                                {!format.hasVideo && format.hasAudio && 'Solo Audio'}
+                            <h3 className="text-lg font-semibold text-white mb-4">Opciones de Descarga</h3>
+
+                            {videoInfo.formats.length === 0 ? (
+                                <div className="text-center py-8">
+                                    <p className="text-gray-400">No hay formatos disponibles para este video</p>
+                                </div>
+                            ) : (
+                                <div className="grid gap-3 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                                    {videoInfo.formats.map((format, index) => (
+                                        <div key={index} className="bg-[#222] border border-[#333] rounded-lg p-4 hover:bg-[#333] transition-colors">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-2xl">{getFormatIcon(format)}</span>
+                                                    <div>
+                                                        <div className="font-medium text-white">{format.quality}</div>
+                                                        <div className="text-xs text-gray-400">{format.description}</div>
+                                                    </div>
+                                                </div>
                                             </div>
+
+                                            <button
+                                                onClick={() => handleDownload(format)}
+                                                disabled={downloading === format.itag.toString()}
+                                                className={`w-full ${getButtonColor(format)} text-white px-4 py-2 rounded hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 transition-all`}
+                                            >
+                                                {downloading === format.itag.toString() ? (
+                                                    <>
+                                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                                        Descargando...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Download className="w-4 h-4" />
+                                                        Descargar
+                                                    </>
+                                                )}
+                                            </button>
                                         </div>
-                                        <button
-                                            onClick={() => handleDownload(format)}
-                                            disabled={downloading === format.itag.toString()}
-                                            className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50 flex items-center gap-2 transition-colors min-w-[100px] justify-center"
-                                        >
-                                            {downloading === format.itag.toString() ? (
-                                                <Loader2 className="w-4 h-4 animate-spin" />
-                                            ) : (
-                                                <Download className="w-4 h-4" />
-                                            )}
-                                            {downloading === format.itag.toString() ? '' : ''}
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
 
+                {/* Disclaimer */}
                 <div className="mt-8 p-4 bg-yellow-900 border border-yellow-800 rounded">
                     <p className="text-xs text-yellow-300">
                         <strong>Disclaimer:</strong> This tool is for educational purposes only.
