@@ -53,7 +53,7 @@ const DESIRED_FORMATS = [
         format: 'mp4',
         hasVideo: true,
         hasAudio: true,
-        itag: 18, 
+        itag: 18,
         description: 'Video 360p + Audio',
         fallbacks: [134]
     },
@@ -85,6 +85,15 @@ const DESIRED_FORMATS = [
         fallbacks: [248, 299]
     }
 ];
+
+function extractMessage(e: unknown): string {
+    if (e instanceof Error) return e.message;
+    try {
+        return JSON.stringify(e);
+    } catch {
+        return String(e);
+    }
+}
 
 async function getVideoInfo(videoId: string): Promise<VideoInfo> {
     const apiKey = process.env.YOUTUBE_API_KEY;
@@ -121,7 +130,7 @@ async function getVideoInfo(videoId: string): Promise<VideoInfo> {
             try {
                 info = await ytdl.getInfo(url, YTDL_OPTIONS);
             } catch (firstError) {
-                console.log('Primer intento falló, probando sin opciones personalizadas...');
+                console.log('Primer intento falló, probando sin opciones personalizadas...', extractMessage(firstError));
                 info = await ytdl.getInfo(url);
             }
 
@@ -192,7 +201,7 @@ async function getVideoInfo(videoId: string): Promise<VideoInfo> {
             }
 
         } catch (ytdlError) {
-            console.error('Error verificando formatos:', ytdlError);
+            console.error('Error verificando formatos:', extractMessage(ytdlError));
 
             availableFormats = [
                 {
@@ -225,8 +234,8 @@ async function getVideoInfo(videoId: string): Promise<VideoInfo> {
         };
 
     } catch (error) {
-        console.error('Error getting video info:', error);
-        throw new Error(`Failed to get video info: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        console.error('Error getting video info:', extractMessage(error));
+        throw new Error(`Failed to get video info: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
 
@@ -234,9 +243,9 @@ function parseDuration(duration: string): number {
     const match = duration.match(/PT(\d+H)?(\d+M)?(\d+S)?/);
     if (!match) return 0;
 
-    const hours = (match[1] ? parseInt(match[1]) : 0);
-    const minutes = (match[2] ? parseInt(match[2]) : 0);
-    const seconds = (match[3] ? parseInt(match[3]) : 0);
+    const hours = (match[1] ? parseInt(match[1].replace('H', '')) : 0);
+    const minutes = (match[2] ? parseInt(match[2].replace('M', '')) : 0);
+    const seconds = (match[3] ? parseInt(match[3].replace('S', '')) : 0);
 
     return hours * 3600 + minutes * 60 + seconds;
 }
@@ -253,13 +262,13 @@ async function getVideoDownloadUrl(videoId: string, itag: number): Promise<strin
             console.log('Intento 1: Con opciones anti-bot...');
             info = await ytdl.getInfo(url, YTDL_OPTIONS);
         } catch (error1) {
-            console.log('Intento 1 falló:', error1.message);
+            console.log('Intento 1 falló:', extractMessage(error1));
 
             try {
                 console.log('Intento 2: Sin opciones especiales...');
                 info = await ytdl.getInfo(url);
             } catch (error2) {
-                console.log('Intento 2 falló:', error2.message);
+                console.log('Intento 2 falló:', extractMessage(error2));
 
                 try {
                     console.log('Intento 3: Con headers alternativos...');
@@ -272,17 +281,17 @@ async function getVideoDownloadUrl(videoId: string, itag: number): Promise<strin
                     };
                     info = await ytdl.getInfo(url, altOptions);
                 } catch (error3) {
-                    console.log('Todos los intentos fallaron');
+                    console.log('Todos los intentos fallaron:', extractMessage(error3));
                     throw error3;
                 }
             }
         }
 
-        const format = info.formats.find(f => f.itag === itag);
+        const format = info.formats.find((f: any) => f.itag === itag);
 
         if (!format) {
             console.error(`Formato itag ${itag} no encontrado`);
-            console.log('Formatos disponibles:', info.formats.map(f => ({
+            console.log('Formatos disponibles:', info.formats.map((f: any) => ({
                 itag: f.itag,
                 quality: f.quality,
                 hasVideo: f.hasVideo,
@@ -301,7 +310,7 @@ async function getVideoDownloadUrl(videoId: string, itag: number): Promise<strin
         return format.url;
 
     } catch (error) {
-        console.error('Error obteniendo URL:', error);
+        console.error('Error obteniendo URL:', extractMessage(error));
         return null;
     }
 }
@@ -310,3 +319,4 @@ export const YouTubeService = {
     getVideoInfo,
     getVideoDownloadUrl
 };
+
